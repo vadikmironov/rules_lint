@@ -1,0 +1,32 @@
+name: "Test: macOS C++ (clang-tidy built-in includes)"
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test-macos-cpp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+        bazel-version: ["7.x", "8.x"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: bazel-contrib/setup-bazel@0.15.0
+        with:
+          bazelrc: |
+            common --announce_rc
+            common --color=yes
+            build:lint --no@aspect_rules_lint//lint:color
+      - name: "Test clang-tidy with built-in include dirs"
+        working-directory: examples/cpp
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
+        run: |
+          # Run the clang-tidy lint tests.
+          # clang_tidy_stdlib exercises the -idirafter fix for issue #566:
+          # on macOS, Xcode SDK platform headers are only available via
+          # cc_toolchain.built_in_include_directories.
+          bazel test //test:clang_tidy //test:clang_tidy_stdlib
