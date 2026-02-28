@@ -301,17 +301,6 @@ def _get_compiler_args(ctx, compilation_context, srcs):
     args.extend(_prefixed(compilation_context.quote_includes.to_list(), "-iquote"))
     args.extend(_prefixed(compilation_context.system_includes.to_list(), _angle_includes_option(ctx)))
     args.extend(_prefixed(compilation_context.external_includes.to_list(), "-isystem"))
-
-    # Add the C++ toolchain's built-in include directories (e.g. libc++ headers,
-    # Clang resource headers, platform system headers).  The compiler finds these
-    # implicitly via binary-relative search, but clang-tidy runs from a different
-    # location in the Bazel sandbox and cannot discover them on its own.
-    # Use -idirafter (not -isystem) so these directories are searched AFTER the
-    # compiler's internal paths.  This preserves #include_next chains in system
-    # headers, which rely on search-order position to resolve correctly.
-    cc_toolchain = find_cpp_toolchain(ctx)
-    args.extend(_prefixed(cc_toolchain.built_in_include_directories, "-idirafter"))
-
     return args
 
 def clang_tidy_action(ctx, compilation_context, executable, srcs, stdout, exit_code, patch = None):

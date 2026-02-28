@@ -1,4 +1,4 @@
-name: "Test: macOS C++ (clang-tidy built-in includes)"
+name: "Test: macOS C++ (clang-tidy WITHOUT built-in include fix)"
 
 on:
   push:
@@ -20,13 +20,58 @@ jobs:
             common --announce_rc
             common --color=yes
             build:lint --no@aspect_rules_lint//lint:color
-      - name: "Test clang-tidy with built-in include dirs"
+      - name: "Show toolchain info"
         working-directory: examples/cpp
         env:
           USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
         run: |
-          # Run the clang-tidy lint tests.
-          # clang_tidy_stdlib exercises the -idirafter fix for issue #566:
-          # on macOS, Xcode SDK platform headers are only available via
-          # cc_toolchain.built_in_include_directories.
-          bazel test //test:clang_tidy //test:clang_tidy_stdlib
+          echo "=== macOS SDK path ==="
+          xcrun --show-sdk-path --sdk macosx
+          echo "=== Xcode version ==="
+          xcodebuild -version
+          echo "=== OS info ==="
+          sw_vers
+      - name: "Test clang_tidy (hello.cpp) — expect BUILD failure without fix"
+        working-directory: examples/cpp
+        continue-on-error: true
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
+        run: |
+          # Without the -idirafter fix, clang-tidy on macOS cannot find
+          # Xcode SDK platform headers.  This test demonstrates issue #566.
+          bazel test //test:clang_tidy --verbose_failures 2>&1 || true
+          echo ""
+          echo "=== Exit code: $? ==="
+      - name: "Test clang_tidy_stdlib (stdlib_check.cpp) — expect BUILD failure without fix"
+        working-directory: examples/cpp
+        continue-on-error: true
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
+        run: |
+          # stdlib_check.cpp includes <string> with -stdlib=libc++.
+          # Without the fix, Xcode SDK C headers that libc++ depends on
+          # (wchar.h, stdlib.h, math.h) cannot be found.
+          bazel test //test:clang_tidy_stdlib --verbose_failures 2>&1 || true
+          echo ""
+          echo "=== Exit code: $? ==="
+      - name: "Dump clang-tidy params for hello.cpp"
+        working-directory: examples/cpp
+        continue-on-error: true
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
+        run: |
+          # Show the actual flags passed to clang-tidy
+          echo "=== clang-tidy params for hello.cpp ==="
+          find $(bazel info output_base 2>/dev/null || echo ~/.bazel) \
+            -name "hello.cpp.AspectRulesLintClangTidy*params" \
+            -exec echo "--- {} ---" \; -exec cat {} \; 2>/dev/null || echo "params file not found"
+      - name: "Dump clang-tidy params for stdlib_check.cpp"
+        working-directory: examples/cpp
+        continue-on-error: true
+        env:
+          USE_BAZEL_VERSION: ${{ matrix.bazel-version }}
+        run: |
+          echo "=== clang-tidy params for stdlib_check.cpp ==="
+          find $(bazel info output_base 2>/dev/null || echo ~/.bazel) \
+            -name "stdlib_check.cpp.AspectRulesLintClangTidy*params" \
+            -exec echo "--- {} ---" \; -exec cat {} \; 2>/dev/null || echo "params file not found"
