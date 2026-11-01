@@ -1,0 +1,33 @@
+name: evidence-779
+
+# Not for merge. macOS runs of examples/cpp for aspect-build/rules_lint#779:
+# upstream CI runs examples/cpp on Linux only.
+on:
+  push:
+    branches: ["evidence/779-*"]
+  workflow_dispatch:
+
+jobs:
+  clang-tidy-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          bazelrc: |
+            common --announce_rc
+            common --color=yes
+      - name: clang-tidy report for //src:stdlib_check
+        working-directory: examples/cpp
+        env:
+          USE_BAZEL_VERSION: 8.x
+        run: |
+          bazel build --aspects=//tools/lint:linters.bzl%clang_tidy \
+            --output_groups=rules_lint_human //src:stdlib_check
+          find -L bazel-bin/src -type f -name '*stdlib_check*ClangTidy*' \
+            -exec sh -c 'echo "== $1"; cat "$1"' _ {} \;
+      - name: lint test //test:clang_tidy_stdlib
+        working-directory: examples/cpp
+        env:
+          USE_BAZEL_VERSION: 8.x
+        run: bazel test --test_output=errors //test:clang_tidy_stdlib
