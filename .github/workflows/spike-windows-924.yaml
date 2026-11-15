@@ -19,6 +19,9 @@ jobs:
       # upstream main, the parent of the fix
       BASE: 46361f882415c2206bebe575f59c5aefa3257529
       ASPECT: //tools/lint:linters.bzl%clang_tidy
+      # Git Bash rewrites an argument such as //src:hello_cc to /src:hello_cc.
+      MSYS_NO_PATHCONV: 1
+      MSYS2_ARG_CONV_EXCL: "*"
     defaults:
       run:
         shell: bash
@@ -47,9 +50,11 @@ jobs:
         continue-on-error: true
         working-directory: examples/cpp
         run: |
-          bazel build --aspects="$ASPECT" --output_groups=rules_lint_human //src:hello_cc
+          bazel build --aspects="$ASPECT" --output_groups=rules_lint_human //src:hello_cc || echo "BUILD FAILED: $?"
           find -L bazel-bin/src -type f -name '*ClangTidy*' \
             -exec sh -c 'echo "== $1"; cat "$1"' _ {} \;
+          echo "--- lint test (the Windows launcher of lint_test)"
+          bazel test --test_output=errors //test:clang_tidy || echo "TEST FAILED: $?"
       - name: Unit tests of the fix at the repository root (informational)
         continue-on-error: true
         run: bazel test //lint/test:clang_tidy_flags_test --test_output=errors
