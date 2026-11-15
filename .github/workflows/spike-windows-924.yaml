@@ -1,0 +1,83 @@
+name: spike-windows-924
+
+# Not for merge. A Windows check for the fix of bazel-contrib/rules_lint#924
+# (treat a `/`-prefixed compiler flag as an MSVC option only on Windows):
+# 1. Does the clang-tidy aspect build the same command line for an MSVC target
+#    with and without the fix?
+# 2. Does clang-tidy run on Windows at all (informational)?
+# 3. Do the new unit tests run at the repository root (informational)?
+on:
+  push:
+    branches: ["spike/windows-924*"]
+  workflow_dispatch:
+
+jobs:
+  clang-tidy-windows:
+    runs-on: windows-latest
+    env:
+      USE_BAZEL_VERSION: 8.x
+      # upstream main, the parent of the fix
+      BASE: 46361f882415c2206bebe575f59c5aefa3257529
+      ASPECT: //tools/lint:linters.bzl%clang_tidy
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab # 0.19.2
+        with:
+          bazelrc: |
+            common --announce_rc
+            common --color=yes
+      - name: Put the runner's clang-tidy where the example expects it
+        run: |
+          src="/c/Program Files/LLVM/bin/clang-tidy.exe"
+          ls -l "$src"
+          "$src" --version
+          cp "$src" examples/cpp/tools/lint/clang-tidy.exe
+      - name: Command line with the fix
+        working-directory: examples/cpp
+        run: |
+          bazel aquery --aspects="$ASPECT" --include_aspects --output=text \
+            'mnemonic("AspectRulesLintClangTidy", //src:hello_cc)' > "$RUNNER_TEMP/after.txt"
+          cat "$RUNNER_TEMP/after.txt"
+      - name: Lint one target with the fix (informational)
+        continue-on-error: true
+        working-directory: examples/cpp
+        run: |
+          bazel build --aspects="$ASPECT" --output_groups=rules_lint_human //src:hello_cc
+          find -L bazel-bin/src -type f -name '*ClangTidy*' \
+            -exec sh -c 'echo "== $1"; cat "$1"' _ {} \;
+      - name: Unit tests of the fix at the repository root (informational)
+        continue-on-error: true
+        run: bazel test //lint/test:clang_tidy_flags_test --test_output=errors
+      - name: Command line without the fix
+        run: |
+          git checkout "$BASE" -- lint/clang_tidy.bzl lint/private/BUILD.bazel lint/test/BUILD.bazel
+          git rm -q -f lint/private/clang_tidy_flags.bzl lint/test/clang_tidy_flags_test.bzl
+          git status --short
+          cd examples/cpp
+          bazel aquery --aspects="$ASPECT" --include_aspects --output=text \
+            'mnemonic("AspectRulesLintClangTidy", //src:hello_cc)' > "$RUNNER_TEMP/before.txt"
+          cat "$RUNNER_TEMP/before.txt"
+      - name: Compare the two command lines
+        run: |
+          # Only the command line and the environment: action keys can differ.
+          extract() { awk '/^  Command Line:/{p=1} /^# Configuration/{p=0} p; /^  Environment:/{print}' "$1"; }
+          extract "$RUNNER_TEMP/before.txt" > "$RUNNER_TEMP/before.cmd"
+          extract "$RUNNER_TEMP/after.txt" > "$RUNNER_TEMP/after.cmd"
+          test -s "$RUNNER_TEMP/after.cmd"
+          if diff "$RUNNER_TEMP/before.cmd" "$RUNNER_TEMP/after.cmd"; then
+            echo "IDENTICAL: the fix does not change the command line on Windows"
+          else
+            echo "DIFFERENT: see the diff above"
+            exit 1
+          fi
+          echo "--- MSVC options that must not be in the command line:"
+          if grep -n -E "^ +'?/(nologo|W[0-9]|wd[0-9]|showIncludes|Zi|MD|std:)" "$RUNNER_TEMP/after.cmd"; then
+            echo "FOUND an untranslated MSVC option"
+            exit 1
+          fi
+          echo "none"
